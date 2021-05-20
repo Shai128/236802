@@ -1,10 +1,10 @@
-import sys
 import numpy as np
 import torch.nn as nn
-from tqdm import tqdm
 import torch.optim
 import matplotlib.pyplot as plt
 from copy import deepcopy
+from torch.utils.data import DataLoader, TensorDataset
+from utils import pearsons_corr, HSIC, pearsons_corr_2d
 
 
 def change_parameters_require_grad(parameters, require_grad):
@@ -62,12 +62,15 @@ class BaseModel(nn.Module):
 
         device = self.device
 
-        data_len = x.shape[0]
-        batch_size = batch_size
-        shuffle_idx = np.arange(data_len)
-        np.random.shuffle(shuffle_idx)
-        x = x[shuffle_idx].detach().to(device)
-        y = y[shuffle_idx].detach().to(device)
+        x = x.to(device)
+        y = y.to(device)
+        val_x = val_x.to(device)
+        val_y = val_y.to(device)
+        y = y.type(torch.LongTensor)
+
+        loader = DataLoader(TensorDataset(x, y),
+                            shuffle=True,
+                            batch_size=batch_size)
 
         self.losses = []
         self.learner_losses = []
@@ -77,41 +80,35 @@ class BaseModel(nn.Module):
 
         cross_entropy = self.cross_entropy
 
-        pbar_file = sys.stdout
-        with tqdm(epochs, file=pbar_file):
-            y = y.type(torch.LongTensor)
-            for _ in tqdm(range(epochs)):
-                curr_losses = []
-                curr_learner_loss = []
-                for idx in range(0, data_len, batch_size):
+        for _ in (range(epochs)):
+            curr_losses = []
+            curr_learner_loss = []
+            for batch_x, batch_y in loader:
+                self.optimizer.zero_grad()
+                batch_x.requires_grad = True
+                batch_y.requires_grad = False
 
-                    self.optimizer.zero_grad()
-                    batch_x = x[idx: min(idx + batch_size, x.shape[0])]
-                    batch_y = y[idx: min(idx + batch_size, y.shape[0])]
-                    batch_x.requires_grad = True
-                    batch_y.requires_grad = False
+                # learner backward
+                change_parameters_require_grad(self.learner.parameters(), require_grad=True)
 
-                    # learner backward
-                    change_parameters_require_grad(self.learner.parameters(), require_grad=True)
+                learner_loss = cross_entropy(self.learner_forward(batch_x), batch_y).mean()
 
-                    learner_loss = cross_entropy(self.learner_forward(batch_x), batch_y).mean()
+                learner_loss.backward()
 
-                    learner_loss.backward()
+                loss = learner_loss
 
-                    loss = learner_loss
+                self.optimizer.step()
+                curr_losses += [loss.detach().cpu().numpy()]
+                curr_learner_loss += [learner_loss.detach().cpu().numpy()]
 
-                    self.optimizer.step()
-                    curr_losses += [loss.detach().cpu().numpy()]
-                    curr_learner_loss += [learner_loss.detach().cpu().numpy()]
+            curr_losses = np.mean(curr_losses)
+            curr_learner_loss = np.mean(curr_learner_loss)
 
-                curr_losses = np.mean(curr_losses)
-                curr_learner_loss = np.mean(curr_learner_loss)
+            self.losses += [curr_losses]
+            self.learner_losses += [curr_learner_loss]
 
-                self.losses += [curr_losses]
-                self.learner_losses += [curr_learner_loss]
-
-                if self.early_stop(val_x, val_y):
-                    break
+            if self.early_stop(val_x, val_y):
+                break
 
     def early_stop(self, val_x, val_y):
         with torch.no_grad():
@@ -182,12 +179,15 @@ class AdversarialReweightedModel(BaseModel):
 
         device = self.device
 
-        data_len = x.shape[0]
-        batch_size = batch_size
-        shuffle_idx = np.arange(data_len)
-        np.random.shuffle(shuffle_idx)
-        x = x[shuffle_idx].detach().to(device)
-        y = y[shuffle_idx].detach().to(device)
+        x = x.to(device)
+        y = y.to(device)
+        val_x = val_x.to(device)
+        val_y = val_y.to(device)
+        y = y.float()
+
+        loader = DataLoader(TensorDataset(x, y),
+                            shuffle=True,
+                            batch_size=batch_size)
 
         self.best_loss = None
         self.epochs_not_improved = 0
@@ -199,65 +199,55 @@ class AdversarialReweightedModel(BaseModel):
 
         cross_entropy = self.cross_entropy
 
-        pbar_file = sys.stdout
-        with tqdm(epochs, file=pbar_file):
-            for _ in tqdm(range(epochs)):
-                curr_losses = []
-                curr_learner_loss = []
-                curr_adversarial_loss = []
-                for idx in range(0, data_len, batch_size):
+        for _ in (range(epochs)):
+            curr_losses = []
+            curr_learner_loss = []
+            curr_adversarial_loss = []
+            for batch_x, batch_y in loader:
 
-                    self.optimizer.zero_grad()
-                    batch_x = x[idx: min(idx + batch_size, x.shape[0])]
-                    batch_y = y[idx: min(idx + batch_size, y.shape[0])]
-                    batch_x.requires_grad = True
-                    batch_y.requires_grad = True
+                self.optimizer.zero_grad()
+                batch_x.requires_grad = True
 
-                    # adversary backward
-                    change_parameters_require_grad(self.adversary.parameters(), require_grad=True)
-                    change_parameters_require_grad(self.learner.parameters(), require_grad=False)
+                # adversary backward
+                change_parameters_require_grad(self.adversary.parameters(), require_grad=True)
+                change_parameters_require_grad(self.learner.parameters(), require_grad=False)
 
-                    batch_y.requires_grad = True
-                    lambdas = self.adversary_forward(batch_x, batch_y)
-                    y_cross_entropy = batch_y.type(torch.LongTensor).clone()
-                    y_cross_entropy.requires_grad = False
-                    adversary_loss = - lambdas @ cross_entropy(self.learner_forward(batch_x), y_cross_entropy)
-                    adversary_loss.backward()
+                batch_y.requires_grad = True
+                lambdas = self.adversary_forward(batch_x, batch_y)
+
+                y_cross_entropy = batch_y.type(torch.LongTensor).clone()
+                y_cross_entropy.requires_grad = False
+                adversary_loss = - lambdas @ cross_entropy(self.learner_forward(batch_x), y_cross_entropy)
+                adversary_loss.backward()
 
 
-                    # learner backward
-                    change_parameters_require_grad(self.adversary.parameters(), require_grad=False)
-                    change_parameters_require_grad(self.learner.parameters(), require_grad=True)
-                    lambdas = self.adversary_forward(batch_x, batch_y)
-                    y_cross_entropy = batch_y.type(torch.LongTensor).clone()
-                    y_cross_entropy.requires_grad = False
-                    learner_loss = lambdas @ cross_entropy(self.learner_forward(batch_x), y_cross_entropy)
+                # learner backward
+                change_parameters_require_grad(self.adversary.parameters(), require_grad=False)
+                change_parameters_require_grad(self.learner.parameters(), require_grad=True)
+                lambdas = self.adversary_forward(batch_x, batch_y)
+                y_cross_entropy = batch_y.type(torch.LongTensor).clone()
+                y_cross_entropy.requires_grad = False
+                learner_loss = lambdas @ cross_entropy(self.learner_forward(batch_x), y_cross_entropy)
 
-                    learner_loss.backward()
+                learner_loss.backward()
 
-                    loss = learner_loss + adversary_loss
-                    import math
-                    if math.isnan(loss.item()):
-                        a = 3
+                loss = learner_loss + adversary_loss
 
-                    self.optimizer.step()
-                    curr_losses += [loss.detach().cpu().numpy()]
-                    curr_learner_loss += [learner_loss.detach().cpu().numpy()]
-                    curr_adversarial_loss += [adversary_loss.detach().cpu().numpy()]
+                self.optimizer.step()
+                curr_losses += [loss.detach().cpu().numpy()]
+                curr_learner_loss += [learner_loss.detach().cpu().numpy()]
+                curr_adversarial_loss += [adversary_loss.detach().cpu().numpy()]
 
-                curr_losses = np.mean(curr_losses)
-                curr_learner_loss = np.mean(curr_learner_loss)
-                curr_adversarial_loss = np.mean(curr_adversarial_loss)
+            curr_losses = np.mean(curr_losses)
+            curr_learner_loss = np.mean(curr_learner_loss)
+            curr_adversarial_loss = np.mean(curr_adversarial_loss)
 
-                self.losses += [curr_losses]
-                self.learner_losses += [curr_learner_loss]
-                self.adversarial_losses += [curr_adversarial_loss]
+            self.losses += [curr_losses]
+            self.learner_losses += [curr_learner_loss]
+            self.adversarial_losses += [curr_adversarial_loss]
 
-                if self.early_stop(val_x, val_y):
-                    break
-
-                # pbar.set_description(f"learner loss: {curr_learner_loss}, loss: {curr_losses}")
-                # pbar.update(n=1)
+            if self.early_stop(val_x, val_y):
+                break
 
     # def plot_loss(self):
     #     plt.plot(self.learner_losses)
@@ -284,17 +274,26 @@ class ImprovedModel(BaseModel):
                  device='cpu', **kw):
         super(ImprovedModel, self).__init__(in_features,hidden_dim1,hidden_dim2, dropout,
                                                          lr=lr, device=device, **kw)
+        # self.group_optimizer = torch.optim.Adam(self.parameters(), lr=1e-20)
+
 
     def fit(self, x, y, val_x=None, val_y=None, epochs=500, batch_size=64):
-
         device = self.device
 
-        data_len = x.shape[0]
-        batch_size = batch_size
-        shuffle_idx = np.arange(data_len)
-        np.random.shuffle(shuffle_idx)
-        x = x[shuffle_idx].detach().to(device)
-        y = y[shuffle_idx].detach().to(device)
+        x = x.to(device)
+        y = y.to(device)
+        val_x = val_x.to(device)
+        val_y = val_y.to(device)
+        y = y.type(torch.LongTensor)
+
+        # embedder = EmbedFeatures(x.shape[1], lr=1e-4)
+        # embedder.fit(x, epochs=200)
+        # plt.plot(embedder.losses)
+        # plt.show()
+
+        loader = DataLoader(TensorDataset(x, y),
+                            shuffle=True,
+                            batch_size=batch_size)
 
         self.losses = []
         self.learner_losses = []
@@ -305,15 +304,14 @@ class ImprovedModel(BaseModel):
         self.best_loss = None
         self.balance_losses = []
 
-        y = y.type(torch.LongTensor)
-        for _ in (range(epochs)):
+        for e in (range(epochs)):
             curr_losses = []
             curr_learner_loss = []
             curr_balance_losses = []
-            for idx in range(0, data_len, batch_size):
+            epoch_x, epoch_y, epoch_losses = torch.Tensor(), torch.Tensor(), torch.Tensor()
+            for batch_x, batch_y in loader:
                 self.optimizer.zero_grad()
-                batch_x = x[idx: min(idx + batch_size, x.shape[0])]
-                batch_y = y[idx: min(idx + batch_size, y.shape[0])]
+
                 batch_x.requires_grad = True
                 batch_y.requires_grad = False
 
@@ -323,14 +321,42 @@ class ImprovedModel(BaseModel):
                 learner_loss = cross_entropy(self.learner_forward(batch_x), batch_y)
 
                 balance_loss = learner_loss.std() / learner_loss.max().detach()
-                loss = learner_loss.mean() + 0.05*balance_loss
+
+                indp_loss = 0.05*torch.abs(pearsons_corr_2d(batch_x, learner_loss)).mean()
+                # indp_loss = torch.sqrt(torch.abs(HSIC(learner_loss.reshape((len(learner_loss), 1)), batch_x)))
+                # indp_loss = 0.1*torch.abs(pearsons_corr(learner_loss, embedder.embed(batch_x))
+
+                loss = learner_loss.mean() + indp_loss
                 loss.backward()
 
                 self.optimizer.step()
+
+                epoch_x = torch.cat([epoch_x, batch_x.detach()], dim=0)
+                epoch_y = torch.cat([epoch_y, batch_y.detach()], dim=0)
+                epoch_losses = torch.cat([epoch_losses, learner_loss.detach()], dim=0)
+
                 learner_loss = learner_loss.mean()
                 curr_losses += [loss.detach().cpu().numpy()]
                 curr_learner_loss += [learner_loss.detach().cpu().numpy()]
                 curr_balance_losses += [balance_loss.detach().cpu().numpy()]
+            #
+            # if e % 20 == 0 and e > 0:
+            #     _, idx = torch.sort(epoch_losses)
+            #     group_batch_size = 128
+            #     idx = idx[-2*group_batch_size:]
+            #     loader = DataLoader(TensorDataset(epoch_x[idx], epoch_y.type(torch.LongTensor)[idx]),
+            #                         shuffle=True,
+            #                         batch_size=group_batch_size)
+            #     for batch_x, batch_y in loader:
+            #         self.optimizer.zero_grad()
+            #         batch_x.requires_grad = True
+            #         batch_y.requires_grad = False
+            #
+            #         change_parameters_require_grad(self.learner.parameters(), require_grad=True)
+            #         learner_loss = cross_entropy(self.learner_forward(batch_x), batch_y).mean()
+            #         learner_loss.backward()
+            #         self.optimizer.step()
+
 
             curr_losses = np.mean(curr_losses)
             curr_learner_loss = np.mean(curr_learner_loss)
@@ -350,4 +376,74 @@ class ImprovedModel(BaseModel):
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.show()
+
+
+
+class EmbedFeatures(nn.Module):
+
+    def __init__(self,
+                 dim_features: int,
+                 dropout=0.1,
+                 lr=1e-4,
+                 device='cpu'):
+
+        super(EmbedFeatures, self).__init__()
+
+
+        predictive_layers = [
+            nn.Linear(1, 32),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(32, 32),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+
+            nn.Linear(32, dim_features),
+
+        ]
+        self.embed = nn.Linear(dim_features, 1)
+
+        self.predict_features = nn.Sequential(*predictive_layers).to(device)
+
+        self.optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+
+        self.device=device
+
+    def predict(self, embedded):
+        return self.predict_features(embedded)
+
+    def fit(self, x, epochs=100, batch_size=64):
+
+        device = self.device
+        x = x.to(device)
+        loader = DataLoader(TensorDataset(x),
+                            shuffle=True,
+                            batch_size=batch_size)
+        self.losses = []
+        for _ in (range(epochs)):
+            curr_losses = []
+            for batch_x in loader:
+                batch_x = batch_x[0]
+                self.optimizer.zero_grad()
+                batch_x.requires_grad = True
+
+                change_parameters_require_grad(self.predict_features.parameters(), require_grad=True)
+                change_parameters_require_grad(self.embed.parameters(), require_grad=False)
+
+                pred_loss = (self.predict_features(self.embed(batch_x)) - batch_x).norm(dim=1).mean()
+
+                change_parameters_require_grad(self.predict_features.parameters(), require_grad=False)
+                change_parameters_require_grad(self.embed.parameters(), require_grad=True)
+
+                embed_loss = (self.predict_features(self.embed(batch_x)) - batch_x).norm(dim=1).mean()
+
+                loss = pred_loss + embed_loss
+                loss.backward()
+
+                curr_losses += [loss.detach().cpu().numpy()]
+
+                self.optimizer.step()
+
+            self.losses += [np.mean(curr_losses)]
 

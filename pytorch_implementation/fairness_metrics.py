@@ -42,6 +42,7 @@ def calculate_fairness_metrics(test_private_features_values, protected_feature_n
             group_name = f"{feature} group {id}"
 
             result_dict[f'Accuracy {group_name}'] = accuracy(y_test[idx], y_pred[idx])
+            result_dict[f'DAccuracy {group_name}'] = abs(result_dict[f'Accuracy {group_name}'] - result_dict['Accuracy'])
             result_dict[f'AUC {group_name}'] = auc(y_test[idx], y_scores[idx])
 
 
