@@ -3,11 +3,16 @@ from models import *
 import pandas as pd
 from datasets import Compas
 from fairness_metrics import calculate_fairness_metrics
-from utils import set_seeds, load_data
+from utils import set_seeds, load_data, create_folder_if_it_doesnt_exist
 from tqdm import tqdm
 
 
-results_dir = 'results'
+
+def results_dir(dataset_name, method_name, seed):
+    return f"results/{dataset_name}/{method_name}"
+
+def result_path(dataset_name, method_name, seed):
+    return f"{results_dir(dataset_name, method_name, seed)}/seed={seed}.csv"
 
 Models = [BaseModel, AdversarialReweightedModel, ImprovedModel]
 
@@ -15,8 +20,8 @@ Models = [BaseModel, AdversarialReweightedModel, ImprovedModel]
 if __name__ == '__main__':
     Models = [ImprovedModel]
     for Model in Models:
+        print(f"current model: {Model.model_name}")
         for seed in tqdm(range(0, 20)):
-
             set_seeds(seed)
             dataset = Compas()
 
@@ -51,10 +56,16 @@ if __name__ == '__main__':
             # print(f"train acc: {train_accuracy}")
             # print(f"test acc: {test_accuracy}")
 
-            result_dict = calculate_fairness_metrics(test_private_features_values, protected_features, test_y, y_scores)
+            result_dict = calculate_fairness_metrics(test_private_features_values, protected_features, test_x, test_y, y_scores)
             method_name = Model.model_name
-            results_name = f"{dataset.dataset_name}_{method_name}_seed={seed}"
-            pd.DataFrame(result_dict, index=[results_name]).to_csv(f"{results_dir}/{results_name}.csv")
+
+            path = result_path(dataset.dataset_name, method_name, seed)
+            create_folder_if_it_doesnt_exist(results_dir(dataset.dataset_name, method_name, seed))
+            pd.DataFrame(result_dict, index=[seed]).to_csv(path)
+
+            # results_name = f"{dataset.dataset_name}_{method_name}_seed={seed}"
+            # pd.DataFrame(result_dict, index=[results_name]).to_csv(f"{results_dir}/{results_name}.csv")
+
         # for protected_feature_value in range(max(test_private_feature_values)+1):
         #     idx = test_private_feature_values==protected_feature_value
         #     print(f"test protected feature value= {protected_feature_value} accuracy: {(test_preds[idx]== test_y[idx]).float().mean()}")

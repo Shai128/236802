@@ -1,3 +1,4 @@
+import os
 import random
 import numpy as np
 import torch
@@ -11,6 +12,12 @@ def set_seeds(seed):
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
+
+
+
+def create_folder_if_it_doesnt_exist(path):
+    if not os.path.exists(path):
+        os.makedirs(path)
 
 
 def load_data(dataset):
@@ -109,4 +116,7 @@ def HSIC(x, y, s_x=1, s_y=1):
     H = H.float().to(K.device)
     HSIC = torch.trace(torch.mm(L, torch.mm(H, torch.mm(K, H)))) / ((m - 1) ** 2)
     return HSIC
+
+
+
 
