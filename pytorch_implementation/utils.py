@@ -92,7 +92,7 @@ def pearsons_corr_2d(x, y):
     vx = x - torch.mean(x, dim=0)
     vy = y - torch.mean(y)
 
-    corrs = torch.sum(vx .T* vy, dim=1) / (torch.sqrt(torch.sum(vx ** 2, dim=0)) * torch.sqrt(torch.sum(vy ** 2)))
+    corrs = torch.sum(vx.T * vy, dim=1) / (torch.sqrt(torch.sum(vx ** 2, dim=0)) * torch.sqrt(torch.sum(vy ** 2)))
     return corrs
 
 

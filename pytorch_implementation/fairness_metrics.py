@@ -1,7 +1,9 @@
+import torch
 from sklearn import metrics
 import numpy as np
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
+from utils import pearsons_corr_2d, pearsons_corr, HSIC
 
 def auc(y, y_scores):
     fpr, tpr, thresholds = metrics.roc_curve(y, y_scores)
@@ -46,6 +48,9 @@ def calculate_fairness_metrics(test_private_features_values, protected_feature_n
             result_dict[f'Accuracy {group_name}'] = accuracy(y_test[idx], y_pred[idx])
             result_dict[f'DAccuracy {group_name}'] = abs(result_dict[f'Accuracy {group_name}'] - result_dict['Accuracy'])
             result_dict[f'AUC {group_name}'] = auc(y_test[idx], y_scores[idx])
+
+    result_dict['corr'] = pearsons_corr_2d(torch.Tensor(x_test), torch.Tensor(y_test == y_pred).float()).abs().mean().item()
+    result_dict['HSIC'] = HSIC(torch.Tensor(x_test), torch.Tensor(y_test == y_pred).float().reshape((len(y_test), 1))).abs().mean().item()
 
     wsc_res = wsc_unbiased(x_test, y_test, y_pred, delta=0.1, M=1000, test_size=0.75,
                                            random_state=2021, verbose=False)
