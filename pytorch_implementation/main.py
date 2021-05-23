@@ -15,6 +15,7 @@ def result_path(dataset_name, method_name, seed):
     return f"{results_dir(dataset_name, method_name, seed)}/seed={seed}.csv"
 
 Models = [BaseModel, AdversarialReweightedModel, ImprovedModel]
+Models = [ImprovedModel]
 
 
 if __name__ == '__main__':
@@ -33,7 +34,7 @@ if __name__ == '__main__':
                           hidden_dim2=64,
                           dropout=0.1,
                           lr=1e-4,
-                          device='cpu',
+                          device='cuda:1',
                           take_best_model=False,
                           )
 
@@ -60,7 +61,3 @@ if __name__ == '__main__':
             path = result_path(dataset.dataset_name, method_name, seed)
             create_folder_if_it_doesnt_exist(results_dir(dataset.dataset_name, method_name, seed))
             pd.DataFrame(result_dict, index=[seed]).to_csv(path)
-
-
-
-

@@ -55,20 +55,25 @@ class BaseModel(nn.Module):
         return self.learner(x)
 
     def get_scores(self, x):
-        return torch.softmax(self.learner(x), dim=1)[:, 1]
+        x_device = x.device
+        x = x.to(self.device)
+
+        return torch.softmax(self.learner(x), dim=1)[:, 1].to(x_device)
 
     def predict(self, x):
-        return torch.argmax(self.learner_forward(x), dim=1)
+        x_device = x.device
+        x = x.to(self.device)
+        return torch.argmax(self.learner_forward(x), dim=1).to(x_device)
 
     def fit(self, x, y, val_x=None, val_y=None, epochs=500, batch_size=64):
 
         device = self.device
 
         x = x.to(device)
-        y = y.to(device)
+        # y = y.to(device)
         val_x = val_x.to(device)
         val_y = val_y.to(device)
-        y = y.type(torch.LongTensor)
+        y = y.type(torch.LongTensor).to(device)
 
         loader = DataLoader(TensorDataset(x, y),
                             shuffle=True,
@@ -87,7 +92,6 @@ class BaseModel(nn.Module):
                 self.optimizer.zero_grad()
                 batch_x.requires_grad = True
                 batch_y.requires_grad = False
-
                 # learner backward
                 change_parameters_require_grad(self.learner.parameters(), require_grad=True)
 
@@ -177,10 +181,10 @@ class AdversarialReweightedModel(BaseModel):
         device = self.device
 
         x = x.to(device)
-        y = y.to(device)
+        # y = y.to(device)
         val_x = val_x.to(device)
         val_y = val_y.to(device)
-        y = y.float()
+        y = y.float().to(device)
 
         loader = DataLoader(TensorDataset(x, y),
                             shuffle=True,
@@ -210,7 +214,7 @@ class AdversarialReweightedModel(BaseModel):
 
                 batch_y.requires_grad = True
                 lambdas = self.adversary_forward(batch_x, batch_y)
-                y_cross_entropy = batch_y.type(torch.LongTensor).clone()
+                y_cross_entropy = batch_y.type(torch.LongTensor).clone().to(device)
                 y_cross_entropy.requires_grad = False
                 adversary_loss = - lambdas @ cross_entropy(self.learner_forward(batch_x.detach()), y_cross_entropy)
                 adversary_loss.backward()
@@ -221,7 +225,7 @@ class AdversarialReweightedModel(BaseModel):
                 change_parameters_require_grad(self.adversary.parameters(), require_grad=False)
                 change_parameters_require_grad(self.learner.parameters(), require_grad=True)
                 lambdas = self.adversary_forward(batch_x.detach(), batch_y.detach())
-                y_cross_entropy = batch_y.type(torch.LongTensor).clone()
+                y_cross_entropy = batch_y.type(torch.LongTensor).clone().to(device)
                 y_cross_entropy.requires_grad = False
                 learner_loss = lambdas @ cross_entropy(self.learner_forward(batch_x), y_cross_entropy)
 
@@ -313,10 +317,10 @@ class ImprovedModel(BaseModel):
         device = self.device
 
         x = x.to(device)
-        y = y.to(device)
+        # y = y.to(device)
         val_x = val_x.to(device)
         val_y = val_y.to(device)
-        y = y.type(torch.LongTensor)
+        y = y.type(torch.LongTensor).to(device)
 
         loader = DataLoader(TensorDataset(x, y),
                             shuffle=True,
@@ -334,7 +338,7 @@ class ImprovedModel(BaseModel):
             curr_losses = []
             curr_learner_loss = []
             curr_adversary_losses = []
-            epoch_x, epoch_y, epoch_losses = torch.Tensor(), torch.Tensor(), torch.Tensor()
+            epoch_x, epoch_y, epoch_losses = torch.Tensor().to(device), torch.Tensor().to(device), torch.Tensor().to(device)
             for batch_x, batch_y in loader:
                 batch_x.requires_grad = True
                 batch_y.requires_grad = False
