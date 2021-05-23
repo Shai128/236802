@@ -291,9 +291,6 @@ class ImprovedModel(BaseModel):
         indp_loss = self.decorr_mult *\
                     torch.abs(pearsons_corr_2d(torch.cat([x, y.reshape(len(y), 1)], dim=1), learner_loss)).mean()
 
-        # reconstructed = self.encode_and_reconstruct_features(x, y, detach_encoded=True, detach_adversary=False)
-        # discriminating_loss = -0.1*((reconstructed - x)**2).mean(dim=1).mean()
-        # discriminating_loss = 0
         discriminating_loss = -self.discriminator_mult * (1. / learner_loss.mean().detach()) * \
                               (learner_loss - self.adversary_network(
                                   torch.cat([x, y.reshape(len(y), 1)], dim=1)).detach().reshape(len(x))).abs().mean()
@@ -309,9 +306,7 @@ class ImprovedModel(BaseModel):
         discriminating_loss = (
                     learner_loss - self.adversary_network(torch.cat([x, y.reshape(len(y), 1)], dim=1)).detach().reshape(
                 len(x))).abs().mean()
-        # reconstructed = self.encode_and_reconstruct_features(x, y, detach_encoded=True, detach_adversary=False)
-        # discriminating_loss = ((reconstructed - x)**2).mean(dim=1).mean()
-        # return discriminating_loss
+
         return discriminating_loss
 
     def fit(self, x, y, val_x=None, val_y=None, epochs=500, batch_size=64):
@@ -369,23 +364,7 @@ class ImprovedModel(BaseModel):
                 curr_losses += [loss.detach().cpu().numpy()]
                 curr_learner_loss += [learner_loss.detach().cpu().numpy()]
                 curr_adversary_losses += [adversary_loss.detach().cpu().numpy()]
-            #
-            # if e % 20 == 0 and e > 0:
-            #     _, idx = torch.sort(epoch_losses)
-            #     group_batch_size = 128
-            #     idx = idx[-2*group_batch_size:]
-            #     loader = DataLoader(TensorDataset(epoch_x[idx], epoch_y.type(torch.LongTensor)[idx]),
-            #                         shuffle=True,
-            #                         batch_size=group_batch_size)
-            #     for batch_x, batch_y in loader:
-            #         self.optimizer.zero_grad()
-            #         batch_x.requires_grad = True
-            #         batch_y.requires_grad = False
-            #
-            #         change_parameters_require_grad(self.learner.parameters(), require_grad=True)
-            #         learner_loss = cross_entropy(self.learner_forward(batch_x), batch_y).mean()
-            #         learner_loss.backward()
-            #         self.optimizer.step()
+
 
             curr_losses = np.mean(curr_losses)
             curr_learner_loss = np.mean(curr_learner_loss)

@@ -18,8 +18,8 @@ Models = [BaseModel, AdversarialReweightedModel, ImprovedModel]
 
 
 if __name__ == '__main__':
-    Models = [ImprovedModel]
-for Model in Models:
+    # Models = [ImprovedModel]
+    for Model in Models:
         print(f"current model: {Model.model_name}")
         for seed in tqdm(range(0, 20)):
             set_seeds(seed)
@@ -35,8 +35,6 @@ for Model in Models:
                           lr=1e-4,
                           device='cpu',
                           take_best_model=False,
-                          # decorr_mult=corr,
-                          # discriminator_mult=disc
                           )
 
             train_tensor_x = torch.tensor(train_x, dtype=torch.float32)
@@ -55,22 +53,14 @@ for Model in Models:
             test_accuracy = (test_preds ==torch.tensor(test_y.values, dtype=torch.int64)).float().mean()
             y_scores = model.get_scores(torch.tensor(test_x, dtype=torch.float32)).detach().numpy()
 
-            # print(f"train acc: {train_accuracy}")
-            # print(f"test acc: {test_accuracy}")
-
             result_dict = calculate_fairness_metrics(test_private_features_values, protected_features, test_x, test_y, y_scores)
-            method_name = f"{Model.model_name}"#_corr_{corr}_{disc}"
+            result_dict['Train Accuracy'] = train_accuracy.item()
+            method_name = f"{Model.model_name}"
 
             path = result_path(dataset.dataset_name, method_name, seed)
             create_folder_if_it_doesnt_exist(results_dir(dataset.dataset_name, method_name, seed))
             pd.DataFrame(result_dict, index=[seed]).to_csv(path)
 
-                # results_name = f"{dataset.dataset_name}_{method_name}_seed={seed}"
-                # pd.DataFrame(result_dict, index=[results_name]).to_csv(f"{results_dir}/{results_name}.csv")
-
-            # for protected_feature_value in range(max(test_private_feature_values)+1):
-            #     idx = test_private_feature_values==protected_feature_value
-            #     print(f"test protected feature value= {protected_feature_value} accuracy: {(test_preds[idx]== test_y[idx]).float().mean()}")
 
 
 
