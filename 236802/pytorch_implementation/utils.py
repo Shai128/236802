@@ -20,11 +20,18 @@ def create_folder_if_it_doesnt_exist(path):
         os.makedirs(path)
 
 
+
+
 def load_data(dataset):
     data_features = dataset.features
 
-    train = pd.read_csv(f"data/{dataset.folder_name}/train.csv", header=None, names=data_features)
-    test = pd.read_csv(f"data/{dataset.folder_name}/test.csv", header=None, names=data_features)
+    if dataset.folder_name == "compas":
+        train = pd.read_csv(f"data/{dataset.folder_name}/train.csv", header=None, names=data_features).drop(['Unnamed: 0'], axis=1, errors='ignore')
+        test = pd.read_csv(f"data/{dataset.folder_name}/test.csv", header=None, names=data_features).drop(['Unnamed: 0'], axis=1, errors='ignore')
+
+    else:
+        train = pd.read_csv(f"data/{dataset.folder_name}/train.csv").drop(['Unnamed: 0'], axis=1)
+        test = pd.read_csv(f"data/{dataset.folder_name}/test.csv").drop(['Unnamed: 0'], axis=1)
 
     df = pd.concat([train, test], axis=0)
 
@@ -36,10 +43,13 @@ def load_data(dataset):
     for feature_name in data_features:
         df[feature_name] = pd.to_numeric(df[feature_name])
 
-    idx = np.random.permutation(len(df))
-    train = df.iloc[idx[:len(train)]]
+    train_ratio = len(train) / (len(train) + len(test))
+    idx = np.random.permutation(len(df))[:10000]
+    train_size = int(train_ratio*len(idx))
 
-    test = df.iloc[idx[len(train):]]
+    train = df.iloc[idx[:train_size]]
+
+    test = df.iloc[idx[train_size:]]
 
     protected_features = dataset.possible_protected_features  # 'sex', 'race',
     target_name = dataset.target_feature_name

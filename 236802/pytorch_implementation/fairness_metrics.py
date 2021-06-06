@@ -26,6 +26,8 @@ def calculate_fairness_metrics(test_private_features_values, protected_feature_n
 
     for id, subgroup in enumerate(subgroups):
         idx = (test_private_features_values == subgroup).min(axis=1)
+        if min(y_test[idx]) != 0 or max(y_test[idx]) != 1:
+            continue
         subgroup_name = f'subgroup {id}'
         if minority_subgroup_name is None or len(y_test[idx]) < minority_subgroup_size:
             minority_subgroup_name = subgroup_name
@@ -35,7 +37,7 @@ def calculate_fairness_metrics(test_private_features_values, protected_feature_n
         result_dict[f'AUC {subgroup_name}'] = auc(y_test[idx], y_scores[idx])
 
     result_dict['minority subgroup AUC'] = result_dict[f'AUC {minority_subgroup_name}']
-    AUCs = [result_dict[f'AUC subgroup {id}'] for id in range(len(subgroups))]
+    AUCs = [result_dict[f'AUC subgroup {id}'] for id in range(len(subgroups)) if f'AUC subgroup {id}' in result_dict]
     result_dict['min subgroup AUC'] = min(AUCs)
     result_dict['average subgroup AUC'] = np.mean(AUCs)
 
@@ -43,6 +45,8 @@ def calculate_fairness_metrics(test_private_features_values, protected_feature_n
     for feature in protected_feature_names:
         for id, value in enumerate(np.unique(test_private_features_values[feature])):
             idx = test_private_features_values[feature] == value
+            if min(y_test[idx]) != 0 or max(y_test[idx]) != 1:
+                continue
             group_name = f"{feature} group {id}"
 
             result_dict[f'Accuracy {group_name}'] = accuracy(y_test[idx], y_pred[idx])
